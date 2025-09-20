@@ -14,8 +14,10 @@ import re
 class TelegramUserBot:
     def __init__(self):
         self.config_file = 'bot_config.json'
+        self.api_config_file = 'config.json'
         self.client = None
         self.config = self.load_config()
+        self.api_config = self.load_api_config()
         self.is_active = False
         self.accounts = {}  # Store multiple account clients
         self.current_account = None  # Currently active account
@@ -26,6 +28,20 @@ class TelegramUserBot:
         if os.path.exists(self.config_file):
             try:
                 with open(self.config_file, 'r') as f:
+                    content = f.read().strip()
+                    if content:
+                        return json.loads(content)
+                    else:
+                        return {}
+            except (json.JSONDecodeError, FileNotFoundError):
+                return {}
+        return {}
+    
+    def load_api_config(self):
+        """Load API configuration from JSON file"""
+        if os.path.exists(self.api_config_file):
+            try:
+                with open(self.api_config_file, 'r') as f:
                     content = f.read().strip()
                     if content:
                         return json.loads(content)
@@ -98,32 +114,27 @@ class TelegramUserBot:
         """Add a new account"""
         print("\n--- ADD NEW ACCOUNT ---")
         
-        # Get account name
-        account_name = input("Enter account name (e.g., Account1, Main, etc.): ").strip()
-        if not account_name:
-            print("❌ Account name is required!")
+        # Check if API config exists
+        if not self.api_config or 'api_id' not in self.api_config or 'api_hash' not in self.api_config:
+            print("❌ API configuration not found in config.json!")
+            print("Please make sure config.json exists with api_id and api_hash")
             return False
         
-        if account_name in self.config.get('accounts', {}):
-            print("❌ Account name already exists!")
-            return False
+        # Use API credentials from config file
+        api_id = self.api_config['api_id']
+        api_hash = self.api_config['api_hash']
+        account_name = self.api_config.get('default_account_name', 'UserBot')
         
-        # Get API credentials
-        print("Please provide Telegram API credentials for this account")
-        print("Get them from https://my.telegram.org/apps")
+        # Check if account already exists, if so, generate a unique name
+        original_name = account_name
+        counter = 1
+        while account_name in self.config.get('accounts', {}):
+            account_name = f"{original_name}_{counter}"
+            counter += 1
         
-        api_id = input("Enter your API ID: ").strip()
-        api_hash = input("Enter your API Hash: ").strip()
-        
-        if not api_id or not api_hash:
-            print("❌ API ID and Hash are required!")
-            return False
-        
-        try:
-            api_id = int(api_id)
-        except ValueError:
-            print("❌ API ID must be a number!")
-            return False
+        print(f"Using account name: {account_name}")
+        print(f"Using API ID: {api_id}")
+        print("API credentials loaded from config.json")
         
         # Create sessions directory
         os.makedirs("sessions", exist_ok=True)
@@ -758,6 +769,13 @@ class TelegramUserBot:
         """Main run loop"""
         # Check for existing sessions on startup
         await self.check_existing_sessions()
+        
+        # If accounts are already logged in, automatically activate the bot
+        if self.logged_accounts and self.current_account:
+            print(f"\n✅ Found existing logged-in account: {self.current_account}")
+            print("🚀 Automatically activating bot...")
+            await self.activate_bot()
+            return  # Exit after bot is deactivated
         
         while True:
             try:
